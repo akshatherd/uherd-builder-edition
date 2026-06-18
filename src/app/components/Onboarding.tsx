@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Check, ChevronRight, Sparkles, Zap } from "lucide-react";
+import { Check, ChevronRight, Sparkles, Zap, Loader2 } from "lucide-react";
+import { supabase } from "../../supabase"; // <-- This assumes Onboarding.tsx is inside src/app/components/
 
 interface OnboardingProps {
   onComplete: () => void;
@@ -51,7 +52,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [selectedType, setSelectedType] = useState<string>("");
   const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
-
+  const [isSubmitting, setIsSubmitting] = useState(false); // <-- Added loading state
 
   const toggleInterest = (id: string) => {
     setSelectedInterests(prev =>
@@ -72,11 +73,38 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     return false;
   };
 
-  const handleNext = () => {
+// --- THE UPDATED DATABASE LOGIC ---
+  const handleNext = async () => {
     if (step < 3) {
       setStep(s => s + 1);
     } else {
-      onComplete();
+      setIsSubmitting(true);
+      try {
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        if (userError || !user) throw new Error("No active user found. Please log in.");
+
+        // CHANGED: Using .upsert() and explicitly passing the user.id
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .upsert({
+            id: user.id, // CRITICAL: Tell Supabase exactly whose profile this is
+            persona: selectedType, 
+            interests: selectedInterests, 
+            goals: selectedGoals, 
+            onboarding_completed: true,
+          });
+
+        if (updateError) throw updateError;
+        
+        // Success! Move them to the main app
+        onComplete();
+
+      } catch (error: any) {
+        console.error("Failed to save onboarding data:", error.message);
+        alert("Something went wrong saving your profile: " + error.message);
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -295,20 +323,22 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           {/* CTA Button */}
           <button
             onClick={handleNext}
-            disabled={!canProceed()}
+            disabled={!canProceed() || isSubmitting}
             className="w-full mt-4 py-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-300"
             style={{
-              background: canProceed()
+              background: canProceed() && !isSubmitting
                 ? "linear-gradient(135deg, #7c3aed, #06b6d4)"
                 : "rgba(255,255,255,0.06)",
-              color: canProceed() ? "#fff" : "#64748b",
+              color: canProceed() && !isSubmitting ? "#fff" : "#64748b",
               fontWeight: 600,
               fontSize: 16,
-              cursor: canProceed() ? "pointer" : "not-allowed",
-              boxShadow: canProceed() ? "0 0 30px rgba(124,58,237,0.4)" : "none",
+              cursor: canProceed() && !isSubmitting ? "pointer" : "not-allowed",
+              boxShadow: canProceed() && !isSubmitting ? "0 0 30px rgba(124,58,237,0.4)" : "none",
             }}
           >
-            {step === 3 ? (
+            {isSubmitting ? (
+               <Loader2 className="animate-spin text-white" size={20} />
+            ) : step === 3 ? (
               <>
                 <Sparkles size={18} />
                 Create My Experience

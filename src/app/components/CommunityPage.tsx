@@ -1,723 +1,363 @@
 import { useState, useRef, useEffect } from "react";
 import {
   ArrowLeft, Send, Paperclip, Smile, Image as ImageIcon,
-  Users, Info, Shield, Trash2, Ban, UserCheck, UserX,
-  Lock, Globe, Hash, Crown, Star, Search, X, Check,
-  ChevronDown, Volume2, AlertTriangle, MoreHorizontal, Download,
+  Users, Info, Shield, Trash2, Download, Loader2,
+  Lock, Globe, Hash, Crown, Search, AlertTriangle, Volume2
 } from "lucide-react";
-import {
-  ExtendedCommunity, CommunityMessage, CommunityMember, JoinRequest,
-  ME_ID, ME, MsgReaction, FILE_ICONS, formatMemberCount
-} from "./CommunityData";
+import { supabase } from "../../supabase";
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+const FILE_ICONS: Record<string, string> = { pdf: "📄", excel: "📊", zip: "🗜️", default: "📎" };
+function getFileIcon(fileType?: string) { return FILE_ICONS[fileType || "default"] || FILE_ICONS.default; }
+export const formatMemberCount = (n: number): string => {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+  if (n >= 1000) return (n / 1000).toFixed(1) + "K";
+  return n.toString();
+};
 
-function getFileIcon(fileType?: string) {
-  return FILE_ICONS[fileType || "default"] || FILE_ICONS.default;
-}
-
-function ReactionPill({ r, onToggle }: { r: MsgReaction; onToggle: () => void }) {
-  return (
-    <button
-      onClick={onToggle}
-      style={{
-        display: "inline-flex", alignItems: "center", gap: 4,
-        padding: "2px 8px", borderRadius: 20, cursor: "pointer",
-        background: r.reacted ? "rgba(124,58,237,0.2)" : "var(--t-surface)",
-        border: `1px solid ${r.reacted ? "rgba(124,58,237,0.45)" : "var(--t-border)"}`,
-        fontSize: 12, fontFamily: "'Outfit', sans-serif",
-        color: r.reacted ? "#a78bfa" : "var(--t-text-3)",
-        transition: "all 0.15s",
-      }}
-    >
-      {r.emoji} <span style={{ fontWeight: 600 }}>{r.count}</span>
-    </button>
-  );
-}
-
-// ── Message Bubble ───────────────────────────────────────────────────────────
-
-function MessageBubble({
-  msg, isAdmin, isMe, onDelete, onReact,
-}: {
-  msg: CommunityMessage;
-  isAdmin: boolean;
-  isMe: boolean;
-  onDelete: (id: string) => void;
-  onReact: (msgId: string, emoji: string) => void;
-}) {
+function MessageBubble({ msg, isAdmin, isMe, onDelete }: any) {
   const [hover, setHover] = useState(false);
-  const isMine = msg.senderId === ME_ID;
-
-  if (msg.type === "system") {
-    return (
-      <div style={{ textAlign: "center", margin: "12px 0" }}>
-        <span style={{
-          display: "inline-block", padding: "6px 16px", borderRadius: 20,
-          background: "rgba(124,58,237,0.12)", border: "1px solid rgba(124,58,237,0.2)",
-          color: "#a78bfa", fontSize: 12, fontFamily: "'Outfit', sans-serif",
-        }}>
-          {msg.content}
-        </span>
-      </div>
-    );
-  }
-
+  
   return (
-    <div
-      style={{ display: "flex", gap: 10, marginBottom: 16, opacity: msg.isDeleted ? 0.4 : 1 }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+    <div 
+      className="animate-in slide-in-from-bottom-2 fade-in duration-200" 
+      style={{ 
+        display: "flex", 
+        flexDirection: isMe ? "row-reverse" : "row", // Left/Right Alignment
+        gap: 10, marginBottom: 16, opacity: msg.is_deleted ? 0.4 : 1 
+      }} 
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
     >
-      {/* Avatar */}
       <div style={{ flexShrink: 0, position: "relative" }}>
-        <img
-          src={msg.senderAvatar}
-          alt={msg.senderName}
-          style={{
-            width: 36, height: 36, borderRadius: "50%", objectFit: "cover",
-            border: msg.senderRole === "admin"
-              ? "2px solid rgba(124,58,237,0.7)"
-              : msg.senderRole === "moderator"
-                ? "2px solid rgba(6,182,212,0.6)"
-                : "2px solid var(--t-border)",
-          }}
-        />
-        {msg.senderRole === "admin" && (
-          <div style={{
-            position: "absolute", bottom: -2, right: -2, width: 14, height: 14,
-            borderRadius: "50%", background: "#7c3aed", display: "flex",
-            alignItems: "center", justifyContent: "center", fontSize: 7,
-            border: "1.5px solid var(--t-bg-card)",
-          }}>
-            <Crown size={8} color="#fff" />
-          </div>
-        )}
-        {msg.senderRole === "moderator" && (
-          <div style={{
-            position: "absolute", bottom: -2, right: -2, width: 14, height: 14,
-            borderRadius: "50%", background: "#06b6d4", display: "flex",
-            alignItems: "center", justifyContent: "center", fontSize: 7,
-            border: "1.5px solid var(--t-bg-card)",
-          }}>
-            <Shield size={8} color="#fff" />
-          </div>
-        )}
+        <img src={msg.profiles?.avatar_url || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop"} alt="Avatar" style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", border: "2px solid var(--t-border, rgba(255,255,255,0.1))" }} />
       </div>
 
-      {/* Bubble content */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-          <span style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 13, fontFamily: "'Outfit', sans-serif" }}>
-            {msg.senderName}
-          </span>
-          {msg.senderRole !== "member" && (
-            <span style={{
-              padding: "1px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700,
-              fontFamily: "'Outfit', sans-serif",
-              background: msg.senderRole === "admin" ? "rgba(124,58,237,0.2)" : "rgba(6,182,212,0.15)",
-              color: msg.senderRole === "admin" ? "#a78bfa" : "#22d3ee",
-              border: msg.senderRole === "admin" ? "1px solid rgba(124,58,237,0.35)" : "1px solid rgba(6,182,212,0.3)",
-            }}>
-              {msg.senderRole === "admin" ? "Admin" : "Mod"}
-            </span>
-          )}
-          <span style={{ color: "var(--t-text-4)", fontSize: 11 }}>{msg.timestamp}</span>
-
-          {/* Action buttons on hover */}
-          {hover && !msg.isDeleted && (
-            <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-              {["❤️", "😂", "🔥", "👍"].map(em => (
-                <button
-                  key={em}
-                  onClick={() => onReact(msg.id, em)}
-                  style={{
-                    width: 26, height: 26, borderRadius: 8, border: "1px solid var(--t-border)",
-                    background: "var(--t-surface)", cursor: "pointer", fontSize: 13,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    transition: "all 0.12s",
-                  }}
-                >
-                  {em}
-                </button>
-              ))}
-              {(isAdmin || isMine) && (
-                <button
-                  onClick={() => onDelete(msg.id)}
-                  style={{
-                    width: 26, height: 26, borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)",
-                    background: "rgba(239,68,68,0.1)", cursor: "pointer",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    color: "#f87171",
-                  }}
-                >
-                  <Trash2 size={12} />
-                </button>
-              )}
-            </div>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start" }}>
+        <div style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{ color: "#fff", fontWeight: 700, fontSize: 13, fontFamily: "'Outfit', sans-serif" }}>{msg.profiles?.persona || "User"}</span>
+          <span style={{ color: "#64748b", fontSize: 11 }}>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          {hover && !msg.is_deleted && (isAdmin || isMe) && (
+            <button onClick={() => onDelete(msg.id)} style={{ width: 24, height: 24, borderRadius: 8, background: "rgba(239,68,68,0.1)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171" }}>
+              <Trash2 size={12} />
+            </button>
           )}
         </div>
 
-        {msg.isDeleted ? (
-          <p style={{ color: "var(--t-text-4)", fontSize: 13, fontStyle: "italic", fontFamily: "'Outfit', sans-serif" }}>
-            Message deleted
-          </p>
+        {msg.is_deleted ? (
+          <p style={{ color: "#64748b", fontSize: 13, fontStyle: "italic" }}>Message deleted by Admin</p>
         ) : (
-          <>
-            {/* Text content */}
-            {(msg.type === "text" || msg.type === "image" || msg.type === "file") && msg.content && msg.type === "text" && (
-              <p style={{ color: "var(--t-text-2)", fontSize: 14, lineHeight: 1.6, fontFamily: "'Outfit', sans-serif", whiteSpace: "pre-line" }}>
-                {msg.content}
-              </p>
-            )}
-
-            {/* Image */}
-            {msg.type === "image" && (
-              <div>
-                {msg.content && (
-                  <p style={{ color: "var(--t-text-2)", fontSize: 14, marginBottom: 8, fontFamily: "'Outfit', sans-serif" }}>{msg.content}</p>
-                )}
-                <div style={{ borderRadius: 12, overflow: "hidden", display: "inline-block", maxWidth: 380 }}>
-                  <img src={msg.imageUrl} alt="" style={{ width: "100%", display: "block", maxHeight: 280, objectFit: "cover" }} />
-                </div>
+          <div style={{
+            background: isMe ? "linear-gradient(135deg, #7c3aed, #06b6d4)" : "#13131a",
+            border: isMe ? "none" : "1px solid rgba(255,255,255,0.05)",
+            padding: "10px 14px",
+            borderRadius: 16,
+            borderBottomRightRadius: isMe ? 4 : 16,
+            borderBottomLeftRadius: !isMe ? 4 : 16,
+            color: "#fff",
+            maxWidth: "85%",
+            boxShadow: isMe ? "0 4px 15px rgba(124,58,237,0.2)" : "none"
+          }}>
+            {msg.content && <p style={{ fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap", marginBottom: msg.type !== 'text' ? 8 : 0 }}>{msg.content}</p>}
+            
+            {msg.type === "image" && msg.file_url && (
+              <div style={{ borderRadius: 10, overflow: "hidden", marginTop: msg.content ? 8 : 0 }}>
+                <img src={msg.file_url} alt="Attachment" style={{ width: "100%", maxHeight: 250, objectFit: "cover" }} />
               </div>
             )}
-
-            {/* File attachment */}
-            {msg.type === "file" && (
-              <div>
-                {msg.content && (
-                  <p style={{ color: "var(--t-text-2)", fontSize: 14, marginBottom: 8, fontFamily: "'Outfit', sans-serif" }}>{msg.content}</p>
-                )}
-                <div style={{
-                  display: "inline-flex", alignItems: "center", gap: 12,
-                  padding: "12px 16px", borderRadius: 14, cursor: "pointer",
-                  background: "var(--t-surface)", border: "1px solid var(--t-border)",
-                  maxWidth: 320, transition: "background 0.15s",
-                }}
-                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = "var(--t-surface-hover)")}
-                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "var(--t-surface)")}
-                >
-                  <div style={{
-                    width: 44, height: 44, borderRadius: 10, flexShrink: 0,
-                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24,
-                    background: "var(--t-surface-hover)",
-                  }}>
-                    {getFileIcon(msg.fileType)}
-                  </div>
+            
+            {msg.type === "file" && msg.file_url && (
+              <a href={msg.file_url} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 12, padding: "10px", borderRadius: 10, background: isMe ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.05)", marginTop: msg.content ? 8 : 0 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, background: isMe ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)" }}>{getFileIcon(msg.file_type)}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: "var(--t-text-1)", fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "'Outfit', sans-serif" }}>
-                      {msg.fileName}
-                    </div>
-                    <div style={{ color: "var(--t-text-4)", fontSize: 11 }}>{msg.fileSize}</div>
+                    <div style={{ color: "#fff", fontWeight: 600, fontSize: 13 }}>{msg.file_name}</div>
+                    <div style={{ color: isMe ? "rgba(255,255,255,0.7)" : "#94a3b8", fontSize: 11 }}>{msg.file_size}</div>
                   </div>
-                  <Download size={16} style={{ color: "var(--t-text-3)", flexShrink: 0 }} />
+                  <Download size={16} style={{ color: isMe ? "#fff" : "#94a3b8" }} />
                 </div>
-              </div>
+              </a>
             )}
-
-            {/* Reactions */}
-            {msg.reactions.length > 0 && (
-              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 8 }}>
-                {msg.reactions.map(r => (
-                  <ReactionPill key={r.emoji} r={r} onToggle={() => onReact(msg.id, r.emoji)} />
-                ))}
-              </div>
-            )}
-          </>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-// ── Request Card ─────────────────────────────────────────────────────────────
-
-function RequestCard({ req, onAccept, onDeny }: {
-  req: JoinRequest;
-  onAccept: (id: string) => void;
-  onDeny: (id: string) => void;
-}) {
-  return (
-    <div style={{
-      padding: 16, borderRadius: 16,
-      background: "var(--t-surface)", border: "1px solid var(--t-border)",
-      marginBottom: 10,
-    }}>
-      <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-        <img src={req.avatar} alt={req.name} style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", border: "2px solid var(--t-border)" }} />
-        <div>
-          <div style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 14, fontFamily: "'Outfit', sans-serif" }}>{req.name}</div>
-          <div style={{ color: "var(--t-text-4)", fontSize: 12 }}>@{req.handle} · {formatMemberCount(req.followersCount)} followers · {req.requestedAt}</div>
-        </div>
-      </div>
-      {req.message && (
-        <div style={{
-          padding: "10px 14px", borderRadius: 10, marginBottom: 12,
-          background: "var(--t-bg)", border: "1px solid var(--t-border)",
-          color: "var(--t-text-2)", fontSize: 13, lineHeight: 1.5,
-          fontFamily: "'Outfit', sans-serif", fontStyle: "italic",
-        }}>
-          "{req.message}"
-        </div>
-      )}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button
-          onClick={() => onAccept(req.id)}
-          style={{
-            flex: 1, padding: "8px 0", borderRadius: 10, cursor: "pointer",
-            background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.4)",
-            color: "#34d399", fontWeight: 700, fontSize: 13,
-            fontFamily: "'Outfit', sans-serif", display: "flex",
-            alignItems: "center", justifyContent: "center", gap: 6,
-          }}
-        >
-          <UserCheck size={15} /> Accept
-        </button>
-        <button
-          onClick={() => onDeny(req.id)}
-          style={{
-            flex: 1, padding: "8px 0", borderRadius: 10, cursor: "pointer",
-            background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)",
-            color: "#f87171", fontWeight: 700, fontSize: 13,
-            fontFamily: "'Outfit', sans-serif", display: "flex",
-            alignItems: "center", justifyContent: "center", gap: 6,
-          }}
-        >
-          <UserX size={15} /> Deny
-        </button>
-      </div>
-    </div>
-  );
+interface CommunityPageProps { 
+  communityId: string; 
+  onBack: () => void; 
 }
 
-// ── CommunityPage ─────────────────────────────────────────────────────────────
+export function CommunityPage({ communityId, onBack }: CommunityPageProps) {
+  const [community, setCommunity] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<"chat"|"members"|"about"|"admin">("chat");
+  const [adminSubTab, setAdminSubTab] = useState<"requests"|"banned"|"settings">("requests");
+  
+  const [messages, setMessages] = useState<any[]>([]);
+  const [members, setMembers] = useState<any[]>([]);
+  const [requests, setRequests] = useState<any[]>([]);
+  const [me, setMe] = useState<any>(null);
+  const [myProfile, setMyProfile] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-interface CommunityPageProps {
-  community: ExtendedCommunity;
-  onBack: () => void;
-  onUpdate: (c: ExtendedCommunity) => void;
-}
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
 
-type MainTab = "chat" | "members" | "about" | "admin";
-
-export function CommunityPage({ community: initCommunity, onBack, onUpdate }: CommunityPageProps) {
-  const [community, setCommunity] = useState<ExtendedCommunity>(initCommunity);
-  const [activeTab, setActiveTab] = useState<MainTab>("chat");
-  const [adminSubTab, setAdminSubTab] = useState<"requests" | "banned" | "settings">("requests");
-  const [messages, setMessages] = useState<CommunityMessage[]>(community.messages);
-  const [members, setMembers] = useState<CommunityMember[]>(community.members);
-  const [requests, setRequests] = useState<JoinRequest[]>(community.pendingRequests);
-  const [memberSearch, setMemberSearch] = useState("");
   const [newMessage, setNewMessage] = useState("");
-  const [attachedFile, setAttachedFile] = useState<{ name: string; size: string; type: string } | null>(null);
-  const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<any>(null);
+  const [attachedImage, setAttachedImage] = useState<any>(null);
+  const [memberSearch, setMemberSearch] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const channelRef = useRef<any>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isAdmin = community.adminId === ME_ID;
-  const myMembership = members.find(m => m.id === ME_ID);
-  const isMod = myMembership?.role === "moderator";
-  const canManage = isAdmin || isMod;
-  const pendingCount = requests.length;
-  const bannedMembers = members.filter(m => m.isBanned);
-  const activeMembers = members.filter(m => !m.isBanned);
+  const fetchData = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    setMe(user);
+
+    const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+    setMyProfile(profile);
+
+    const { data: comm } = await supabase.from('communities').select('*').eq('id', communityId).single();
+    setCommunity(comm);
+
+    const { data: msgs } = await supabase.from('community_messages').select(`*, profiles:user_id (persona, avatar_url)`).eq('community_id', communityId).order('created_at', { ascending: true });
+    setMessages(msgs || []);
+
+    const { data: mems } = await supabase.from('community_members').select(`*, profiles:user_id (id, persona, avatar_url)`).eq('community_id', communityId);
+    setMembers(mems || []);
+
+    const { data: reqs } = await supabase.from('community_requests').select(`*, profiles:user_id (id, persona, avatar_url)`).eq('community_id', communityId).eq('status', 'pending');
+    setRequests(reqs || []);
+
+    setIsLoading(false);
+  };
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    fetchData();
 
-  const syncUp = (updated: Partial<ExtendedCommunity>) => {
-    const next = { ...community, ...updated };
-    setCommunity(next);
-    onUpdate(next);
-  };
+    const setupRealtime = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-  // ── Chat actions ────────────────────────────────────────────────────────────
+      const channel = supabase.channel(`room_${communityId}`, {
+        config: { broadcast: { self: false }, presence: { key: user.id } }
+      });
+      channelRef.current = channel;
 
-  const handleSend = () => {
-    if (!newMessage.trim() && !attachedFile && !attachedImage) return;
-
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-    const base = {
-      id: `msg-${Date.now()}`,
-      senderId: ME_ID,
-      senderName: ME.name,
-      senderHandle: ME.handle,
-      senderAvatar: ME.avatar,
-      senderRole: (myMembership?.role || "member") as "admin" | "moderator" | "member",
-      timestamp: timeStr,
-      reactions: [] as MsgReaction[],
+      channel
+        .on('broadcast', { event: 'typing' }, ({ payload }) => {
+          if (payload.isTyping) {
+            setTypingUsers(prev => prev.includes(payload.user) ? prev : [...prev, payload.user]);
+          } else {
+            setTypingUsers(prev => prev.filter(u => u !== payload.user));
+          }
+        })
+        .on('presence', { event: 'sync' }, () => {
+          const state = channel.presenceState();
+          const onlineIds = new Set(Object.keys(state));
+          setOnlineUsers(onlineIds);
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'community_messages', filter: `community_id=eq.${communityId}` }, () => {
+          fetchData(); // Because Realtime is now ON, this fires instantly for other users!
+        })
+        .subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await channel.track({ online_at: new Date().toISOString(), user_id: user.id });
+          }
+        });
     };
 
-    if (attachedImage) {
-      setMessages(p => [...p, {
-        ...base,
-        id: base.id + "-img",
-        content: newMessage,
-        type: "image",
-        imageUrl: attachedImage,
-      }]);
-    } else if (attachedFile) {
-      setMessages(p => [...p, {
-        ...base,
-        id: base.id + "-file",
-        content: newMessage,
-        type: "file",
-        fileName: attachedFile.name,
-        fileSize: attachedFile.size,
-        fileType: attachedFile.type,
-      }]);
-    } else {
-      setMessages(p => [...p, { ...base, content: newMessage, type: "text" }]);
+    setupRealtime();
+
+    return () => { 
+      if (channelRef.current) supabase.removeChannel(channelRef.current); 
+    };
+  }, [communityId]);
+
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, activeTab]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setNewMessage(e.target.value);
+    if (channelRef.current && myProfile) {
+      channelRef.current.send({ type: 'broadcast', event: 'typing', payload: { isTyping: true, user: myProfile.persona || 'User' } });
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        channelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { isTyping: false, user: myProfile.persona || 'User' } });
+      }, 2000);
+    }
+  };
+
+  const handleSend = async () => {
+    if ((!newMessage.trim() && !attachedFile && !attachedImage) || !me) return;
+    setIsSending(true);
+
+    const messageToSave = newMessage;
+    const currentImage = attachedImage;
+    const currentFile = attachedFile;
+
+    const tempId = `temp-${Date.now()}`;
+    const tempMsg = {
+      id: tempId, community_id: communityId, user_id: me.id, content: messageToSave,
+      type: currentImage ? 'image' : currentFile ? 'file' : 'text',
+      file_url: currentImage ? currentImage.preview : null,
+      file_name: currentFile ? currentFile.name : null, file_size: currentFile ? currentFile.size : null, file_type: currentFile ? currentFile.type : null,
+      created_at: new Date().toISOString(), is_deleted: false,
+      profiles: { persona: myProfile?.persona || 'User', avatar_url: myProfile?.avatar_url }
+    };
+
+    setMessages(prev => [...prev, tempMsg]); 
+    setNewMessage(""); setAttachedFile(null); setAttachedImage(null); setShowEmojiPicker(false);
+
+    if (channelRef.current && myProfile) {
+      channelRef.current.send({ type: 'broadcast', event: 'typing', payload: { isTyping: false, user: myProfile.persona || 'User' } });
     }
 
-    setNewMessage("");
-    setAttachedFile(null);
-    setAttachedImage(null);
-  };
-
-  const handleDelete = (id: string) => {
-    setMessages(p => p.map(m => m.id === id ? { ...m, isDeleted: true } : m));
-  };
-
-  const handleReact = (msgId: string, emoji: string) => {
-    setMessages(p => p.map(m => {
-      if (m.id !== msgId) return m;
-      const existing = m.reactions.find(r => r.emoji === emoji);
-      if (existing) {
-        return {
-          ...m, reactions: m.reactions.map(r =>
-            r.emoji === emoji ? { ...r, count: r.reacted ? r.count - 1 : r.count + 1, reacted: !r.reacted } : r
-          ),
-        };
+    try {
+      let finalFileUrl = null, fileType = "text", fileName = null, fileSize = null, finalExt = null;
+      if (currentImage) {
+        const filePath = `chat_images/${Math.random()}.${currentImage.file.name.split('.').pop()}`;
+        await supabase.storage.from('chat_media').upload(filePath, currentImage.file);
+        finalFileUrl = supabase.storage.from('chat_media').getPublicUrl(filePath).data.publicUrl;
+        fileType = "image";
+      } else if (currentFile) {
+        const filePath = `chat_files/${Math.random()}.${currentFile.file.name.split('.').pop()}`;
+        await supabase.storage.from('chat_media').upload(filePath, currentFile.file);
+        finalFileUrl = supabase.storage.from('chat_media').getPublicUrl(filePath).data.publicUrl;
+        fileType = "file"; fileName = currentFile.name; fileSize = currentFile.size; finalExt = currentFile.type;
       }
-      return { ...m, reactions: [...m.reactions, { emoji, count: 1, reacted: true }] };
-    }));
+      await supabase.from('community_messages').insert({ 
+        community_id: communityId, user_id: me.id, content: messageToSave, 
+        type: fileType, file_url: finalFileUrl, file_name: fileName, file_size: fileSize, file_type: finalExt 
+      });
+    } catch (e) { console.error(e); } finally { setIsSending(false); }
   };
 
-  const handleFileAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const ext = file.name.split(".").pop()?.toLowerCase() || "default";
-    const typeMap: Record<string, string> = { ts: "typescript", js: "javascript", pdf: "pdf", xlsx: "excel", xls: "excel", zip: "zip" };
-    setAttachedFile({
-      name: file.name,
-      size: file.size > 1024 * 1024 ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : `${(file.size / 1024).toFixed(0)} KB`,
-      type: typeMap[ext] || "default",
-    });
-    setAttachedImage(null);
+  const handleDelete = async (msgId: string) => {
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, is_deleted: true } : m));
+    await supabase.from('community_messages').update({ is_deleted: true }).eq('id', msgId);
   };
 
-  const handleImageAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    setAttachedImage(url);
-    setAttachedFile(null);
+  const togglePrivacy = async (type: 'public' | 'private') => {
+    await supabase.from('communities').update({ privacy_type: type }).eq('id', communityId);
+    setCommunity({ ...community, privacy_type: type });
   };
 
-  // ── Admin actions ────────────────────────────────────────────────────────────
-
-  const handleBan = (memberId: string) => {
-    setMembers(p => p.map(m => m.id === memberId ? { ...m, isBanned: true } : m));
-    setMessages(p => [...p, {
-      id: `sys-${Date.now()}`, senderId: "system", senderName: "System",
-      senderHandle: "", senderAvatar: "", senderRole: "member",
-      content: `🚫 A member has been banned from this community by the admin.`,
-      type: "system", timestamp: "now", reactions: [],
-    }]);
+  const handleAcceptRequest = async (reqId: string, requestUserId: string) => {
+    try {
+      await supabase.from('community_members').insert({ community_id: communityId, user_id: requestUserId });
+      await supabase.from('community_requests').delete().eq('id', reqId);
+      setRequests(p => p.filter(r => r.id !== reqId));
+      fetchData(); 
+    } catch (err: any) { alert("Failed to accept request: " + err.message); }
   };
 
-  const handleUnban = (memberId: string) => {
-    setMembers(p => p.map(m => m.id === memberId ? { ...m, isBanned: false } : m));
+  const handleDenyRequest = async (reqId: string) => {
+    try {
+      await supabase.from('community_requests').delete().eq('id', reqId);
+      setRequests(p => p.filter(r => r.id !== reqId));
+    } catch (err: any) { alert("Failed to deny request: " + err.message); }
   };
 
-  const handleAcceptRequest = (reqId: string) => {
-    const req = requests.find(r => r.id === reqId);
-    if (!req) return;
-    setRequests(p => p.filter(r => r.id !== reqId));
-    const newMember: CommunityMember = {
-      id: req.userId, name: req.name, handle: req.handle,
-      avatar: req.avatar, role: "member",
-      joinedAt: "Just now", isBanned: false, isOnline: true,
-    };
-    setMembers(p => [...p, newMember]);
-    setMessages(p => [...p, {
-      id: `sys-${Date.now()}`, senderId: "system", senderName: "System",
-      senderHandle: "", senderAvatar: "", senderRole: "member",
-      content: `🎉 ${req.name} has joined the community!`,
-      type: "system", timestamp: "now", reactions: [],
-    }]);
-    syncUp({ totalMembers: community.totalMembers + 1 });
-  };
+  if (isLoading || !community) return <div className="min-h-screen flex items-center justify-center text-white bg-[#07070E]"><Loader2 className="animate-spin mr-2"/> Loading...</div>;
 
-  const handleDenyRequest = (reqId: string) => {
-    setRequests(p => p.filter(r => r.id !== reqId));
-  };
-
-  const handlePromote = (memberId: string) => {
-    setMembers(p => p.map(m => m.id === memberId ? { ...m, role: "moderator" } : m));
-  };
-
-  // ── Filtered members ─────────────────────────────────────────────────────────
-
-  const filteredMembers = activeMembers.filter(m =>
-    memberSearch === "" ||
-    m.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
-    m.handle.toLowerCase().includes(memberSearch.toLowerCase())
-  );
-
-  // ── Tabs config ─────────────────────────────────────────────────────────────
-
-  const tabs: { id: MainTab; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { id: "chat", label: "Chat", icon: <Volume2 size={15} /> },
-    { id: "members", label: "Members", icon: <Users size={15} />, badge: activeMembers.length },
-    { id: "about", label: "About", icon: <Info size={15} /> },
-    ...(canManage ? [{ id: "admin" as MainTab, label: "Admin", icon: <Shield size={15} />, badge: pendingCount || undefined }] : []),
-  ];
-
-  const accentColor = community.color;
+  const isAdmin = community.owner_id === me?.id;
+  const accentColor = community.color || "#7c3aed";
+  const filteredMembers = members.filter(m => memberSearch === "" || (m.profiles?.persona || "").toLowerCase().includes(memberSearch.toLowerCase()));
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", fontFamily: "'Outfit', sans-serif", background: "var(--t-bg)" }}>
-
-      {/* ── Banner + header ── */}
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", fontFamily: "'Outfit', sans-serif", background: "#07070E" }}>
+      {/* Banner */}
       <div style={{ position: "relative", flexShrink: 0 }}>
         <div style={{ height: 130, overflow: "hidden", position: "relative" }}>
-          <img src={community.banner} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <img src={community.banner_url || "https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=800"} alt="Community Banner" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.7) 100%)" }} />
         </div>
-
-        {/* Back + actions */}
         <div style={{ position: "absolute", top: 14, left: 16, right: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <button
-            onClick={onBack}
-            style={{
-              display: "flex", alignItems: "center", gap: 6, padding: "6px 12px",
-              borderRadius: 20, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)",
-              border: "1px solid rgba(255,255,255,0.2)", color: "#fff", cursor: "pointer",
-              fontSize: 13, fontWeight: 600, fontFamily: "'Outfit', sans-serif",
-            }}
-          >
+          <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 20, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
             <ArrowLeft size={15} /> Back
           </button>
-
           <div style={{ display: "flex", gap: 6 }}>
-            <div style={{
-              display: "flex", alignItems: "center", gap: 5, padding: "5px 12px",
-              borderRadius: 20, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)",
-              border: community.type === "private" ? "1px solid rgba(251,191,36,0.5)" : "1px solid rgba(255,255,255,0.2)",
-              color: community.type === "private" ? "#fbbf24" : "rgba(255,255,255,0.9)",
-              fontSize: 12, fontWeight: 700,
-            }}>
-              {community.type === "private" ? <Lock size={11} /> : <Globe size={11} />}
-              {community.type === "private" ? "Private" : "Public"}
-            </div>
+             <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 20, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)", border: community.privacy_type === "private" ? "1px solid rgba(251,191,36,0.5)" : "1px solid rgba(255,255,255,0.2)", color: community.privacy_type === "private" ? "#fbbf24" : "rgba(255,255,255,0.9)", fontSize: 12, fontWeight: 700 }}>
+                {community.privacy_type === "private" ? <Lock size={11} /> : <Globe size={11} />}
+                {community.privacy_type === "private" ? "Private" : "Public"}
+              </div>
             {isAdmin && (
-              <div style={{
-                display: "flex", alignItems: "center", gap: 5, padding: "5px 12px",
-                borderRadius: 20, background: "rgba(124,58,237,0.6)", backdropFilter: "blur(8px)",
-                border: "1px solid rgba(167,139,250,0.5)", color: "#fff",
-                fontSize: 12, fontWeight: 700,
-              }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 20, background: "rgba(124,58,237,0.6)", border: "1px solid rgba(167,139,250,0.5)", color: "#fff", fontSize: 12, fontWeight: 700 }}>
                 <Crown size={11} /> Admin
               </div>
             )}
           </div>
         </div>
-
-        {/* Community identity row */}
-        <div style={{
-          position: "absolute", bottom: 0, left: 0, right: 0,
-          padding: "0 20px 16px",
-          display: "flex", alignItems: "flex-end", gap: 14,
-        }}>
-          <div style={{
-            width: 56, height: 56, borderRadius: 16, flexShrink: 0,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 28, background: accentColor + "30",
-            border: `2px solid ${accentColor}`,
-            boxShadow: `0 0 20px ${accentColor}40`,
-          }}>
-            {community.icon}
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "0 20px 16px", display: "flex", alignItems: "flex-end", gap: 14 }}>
+          <div style={{ width: 56, height: 56, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, background: accentColor + "30", border: `2px solid ${accentColor}`, overflow: "hidden" }}>
+            {community.avatar_url ? <img src={community.avatar_url} alt="Logo" className="w-full h-full object-cover" /> : community.icon}
           </div>
-          <div style={{ flex: 1 }}>
-            <h1 style={{ color: "#fff", fontWeight: 800, fontSize: 20, marginBottom: 2 }}>{community.name}</h1>
+          <div>
+            <h1 style={{ color: "#fff", fontWeight: 800, fontSize: 20, marginBottom: 8 }}>{community.name}</h1>
             <div style={{ display: "flex", gap: 12, color: "rgba(255,255,255,0.7)", fontSize: 12 }}>
-              <span>👥 {formatMemberCount(community.totalMembers)} members</span>
-              <span>⚡ {community.postsToday || 0} posts today</span>
-              {community.activity === "Very Active" && <span style={{ color: "#34d399" }}>🟢 Very Active</span>}
+              <span>👥 {formatMemberCount(members.length)} members</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ── Tab bar ── */}
-      <div style={{
-        display: "flex", background: "var(--t-bg-card)",
-        borderBottom: "1px solid var(--t-border)", flexShrink: 0, paddingLeft: 8,
-      }}>
-        {tabs.map(tab => {
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "12px 18px", cursor: "pointer",
-                color: active ? "var(--t-text-1)" : "var(--t-text-4)",
-                fontWeight: active ? 700 : 400, fontSize: 14,
-                background: "transparent", border: "none",
-                borderBottomWidth: 2, borderBottomStyle: "solid",
-                borderBottomColor: active ? accentColor : "transparent",
-                fontFamily: "'Outfit', sans-serif",
-                position: "relative",
-              }}
-            >
-              {tab.icon}
-              {tab.label}
-              {tab.badge !== undefined && tab.badge > 0 && (
-                <span style={{
-                  padding: "1px 7px", borderRadius: 20, fontSize: 10, fontWeight: 700,
-                  background: tab.id === "admin" ? "#ef4444" : "rgba(124,58,237,0.2)",
-                  color: tab.id === "admin" ? "#fff" : "#a78bfa",
-                }}>
-                  {tab.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
+      {/* Tabs */}
+      <div style={{ display: "flex", background: "#0a0a14", borderBottom: "1px solid rgba(255,255,255,0.05)", paddingLeft: 8, flexShrink: 0 }}>
+        {[
+          { id: "chat", label: "Chat", icon: <Volume2 size={15} /> },
+          { id: "members", label: "Members", icon: <Users size={15} />, badge: members.length },
+          { id: "about", label: "About", icon: <Info size={15} /> },
+          ...(isAdmin ? [{ id: "admin", label: "Admin", icon: <Shield size={15} />, badge: requests.length }] : []),
+        ].map(tab => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "12px 18px", cursor: "pointer", color: activeTab === tab.id ? "#fff" : "#64748b", fontWeight: activeTab === tab.id ? 700 : 400, fontSize: 14, background: "transparent", border: "none", borderBottom: activeTab === tab.id ? `2px solid ${accentColor}` : "2px solid transparent", position: "relative" }}>
+            {tab.icon} {tab.label}
+            {(tab.badge !== undefined && tab.badge > 0) ? <span style={{ padding: "1px 7px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: tab.id === 'admin' ? '#ef4444' : "rgba(124,58,237,0.2)", color: tab.id === 'admin' ? '#fff' : "#a78bfa" }}>{tab.badge}</span> : null}
+          </button>
+        ))}
       </div>
 
-      {/* ── Tab content ── */}
+      {/* Content */}
       <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-
-        {/* ──── CHAT ──── */}
+        
+        {/* CHAT TAB */}
         {activeTab === "chat" && (
           <>
-            {/* Messages */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", scrollbarWidth: "none" }}>
-              {messages.map(msg => (
-                <MessageBubble
-                  key={msg.id} msg={msg}
-                  isAdmin={canManage} isMe={msg.senderId === ME_ID}
-                  onDelete={handleDelete} onReact={handleReact}
-                />
-              ))}
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+              {messages.map(msg => <MessageBubble key={msg.id} msg={msg} isAdmin={isAdmin} isMe={msg.user_id === me?.id} onDelete={handleDelete} />)}
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Attachment preview */}
-            {(attachedFile || attachedImage) && (
-              <div style={{
-                padding: "8px 20px", background: "var(--t-surface)",
-                borderTop: "1px solid var(--t-border)", flexShrink: 0,
-                display: "flex", alignItems: "center", gap: 12,
-              }}>
-                {attachedImage ? (
-                  <div style={{ position: "relative", display: "inline-block" }}>
-                    <img src={attachedImage} alt="" style={{ width: 60, height: 60, borderRadius: 10, objectFit: "cover" }} />
-                    <button onClick={() => setAttachedImage(null)} style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", background: "#ef4444", color: "#fff", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "none" }}>×</button>
-                  </div>
-                ) : attachedFile ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
-                    <span style={{ fontSize: 24 }}>{getFileIcon(attachedFile.type)}</span>
-                    <div>
-                      <div style={{ color: "var(--t-text-1)", fontWeight: 600, fontSize: 13 }}>{attachedFile.name}</div>
-                      <div style={{ color: "var(--t-text-4)", fontSize: 11 }}>{attachedFile.size}</div>
-                    </div>
-                    <button onClick={() => setAttachedFile(null)} style={{ marginLeft: "auto", color: "var(--t-text-4)", background: "none", border: "none", cursor: "pointer" }}>
-                      <X size={16} />
-                    </button>
-                  </div>
-                ) : null}
+            {/* Live Typing Indicator */}
+            {typingUsers.length > 0 && (
+              <div className="animate-in fade-in" style={{ padding: "4px 20px", color: accentColor, fontSize: 12, fontStyle: "italic", background: "#0a0a14" }}>
+                {typingUsers.join(', ')} {typingUsers.length > 1 ? 'are' : 'is'} typing...
               </div>
             )}
 
-            {/* Input bar */}
-            <div style={{ padding: "12px 16px", borderTop: "1px solid var(--t-border)", background: "var(--t-bg-card)", flexShrink: 0 }}>
-              <div style={{
-                display: "flex", alignItems: "flex-end", gap: 10,
-                padding: "10px 14px", borderRadius: 18,
-                background: "var(--t-surface)", border: "1px solid var(--t-border)",
-              }}>
-                {/* Attach file */}
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{ color: "var(--t-text-3)", cursor: "pointer", background: "none", border: "none", flexShrink: 0, padding: "2px" }}
-                  title="Attach file"
-                >
-                  <Paperclip size={18} />
-                </button>
-                {/* Attach image */}
-                <button
-                  onClick={() => imageInputRef.current?.click()}
-                  style={{ color: "var(--t-text-3)", cursor: "pointer", background: "none", border: "none", flexShrink: 0, padding: "2px" }}
-                  title="Attach image"
-                >
-                  <ImageIcon size={18} />
-                </button>
-
-                <input ref={fileInputRef} type="file" style={{ display: "none" }} onChange={handleFileAttach} />
-                <input ref={imageInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageAttach} />
-
-                <textarea
-                  value={newMessage}
-                  onChange={e => setNewMessage(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                  placeholder={`Message ${community.name}...`}
-                  rows={1}
-                  style={{
-                    flex: 1, resize: "none", background: "transparent", border: "none",
-                    outline: "none", color: "var(--t-text-1)", fontSize: 14,
-                    fontFamily: "'Outfit', sans-serif", lineHeight: 1.5, maxHeight: 100,
-                    caretColor: accentColor,
-                  }}
-                />
-
-                <button
-                  onClick={() => setShowEmojiPicker(p => !p)}
-                  style={{ color: "var(--t-text-3)", cursor: "pointer", background: "none", border: "none", flexShrink: 0 }}
-                >
-                  <Smile size={18} />
-                </button>
-
-                <button
-                  onClick={handleSend}
-                  disabled={!newMessage.trim() && !attachedFile && !attachedImage}
-                  style={{
-                    width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    background: (newMessage.trim() || attachedFile || attachedImage)
-                      ? `linear-gradient(135deg, ${accentColor}, #06b6d4)`
-                      : "var(--t-surface-hover)",
-                    border: "none", cursor: (newMessage.trim() || attachedFile || attachedImage) ? "pointer" : "not-allowed",
-                    boxShadow: (newMessage.trim() || attachedFile || attachedImage) ? `0 0 12px ${accentColor}40` : "none",
-                    transition: "all 0.15s",
-                  }}
-                >
-                  <Send size={15} color={(newMessage.trim() || attachedFile || attachedImage) ? "#fff" : "var(--t-text-4)"} />
+            {/* Input Bar */}
+            <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.05)", background: "#0a0a14", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 18, background: "#13131a", border: "1px solid rgba(255,255,255,0.05)" }}>
+                <input ref={fileInputRef} type="file" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if(f) setAttachedFile({file: f, name: f.name, size: (f.size/1024).toFixed(0)+"KB", type: f.type}); }} />
+                <input ref={imageInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if(f) setAttachedImage({file: f, preview: URL.createObjectURL(f)}); }} />
+                <button onClick={() => fileInputRef.current?.click()} style={{ color: "#94a3b8", background: "none", border: "none", cursor: "pointer" }}><Paperclip size={18} /></button>
+                <button onClick={() => imageInputRef.current?.click()} style={{ color: "#94a3b8", background: "none", border: "none", cursor: "pointer" }}><ImageIcon size={18} /></button>
+                <input value={newMessage} onChange={handleInputChange} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleSend(); } }} placeholder={`Message...`} style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#fff", fontSize: 14 }} />
+                <button onClick={() => setShowEmojiPicker(p => !p)} style={{ color: "#94a3b8", background: "none", border: "none", cursor: "pointer" }}><Smile size={18} /></button>
+                <button onClick={handleSend} disabled={(!newMessage.trim() && !attachedFile && !attachedImage) || isSending} style={{ width: 34, height: 34, borderRadius: "50%", background: (newMessage.trim() || attachedFile || attachedImage) && !isSending ? `linear-gradient(135deg, ${accentColor}, #06b6d4)` : "#1f1f2e", border: "none", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                  {isSending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
                 </button>
               </div>
               {showEmojiPicker && (
-                <div style={{
-                  display: "flex", gap: 6, flexWrap: "wrap",
-                  padding: "10px 14px", background: "var(--t-surface)",
-                  borderRadius: 14, border: "1px solid var(--t-border)", marginTop: 8,
-                }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "10px 14px", background: "#13131a", borderRadius: 14, border: "1px solid rgba(255,255,255,0.05)", marginTop: 8 }}>
                   {["😂", "🔥", "❤️", "👍", "😮", "🎉", "💯", "🚀", "👏", "✨", "🤔", "😭"].map(e => (
-                    <button key={e} onClick={() => { setNewMessage(p => p + e); setShowEmojiPicker(false); }}
-                      style={{ fontSize: 22, cursor: "pointer", background: "none", border: "none", padding: 2 }}>
-                      {e}
-                    </button>
+                    <button key={e} onClick={() => { setNewMessage(p => p + e); setShowEmojiPicker(false); }} style={{ fontSize: 22, cursor: "pointer", background: "none", border: "none", padding: 2, color: "white" }}>{e}</button>
                   ))}
                 </div>
               )}
@@ -725,196 +365,86 @@ export function CommunityPage({ community: initCommunity, onBack, onUpdate }: Co
           </>
         )}
 
-        {/* ──── MEMBERS ──── */}
+        {/* MEMBERS TAB */}
         {activeTab === "members" && (
-          <div style={{ flex: 1, overflowY: "auto", padding: "20px", scrollbarWidth: "none" }}>
-            {/* Search */}
-            <div style={{ position: "relative", marginBottom: 20 }}>
-              <Search size={15} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--t-text-4)" }} />
-              <input
-                value={memberSearch}
-                onChange={e => setMemberSearch(e.target.value)}
-                placeholder="Search members..."
-                style={{
-                  width: "100%", padding: "10px 14px 10px 36px", borderRadius: 14, outline: "none",
-                  background: "var(--t-surface)", border: "1px solid var(--t-border)",
-                  color: "var(--t-text-1)", fontFamily: "'Outfit', sans-serif", fontSize: 14,
-                }}
-              />
-            </div>
-
-            {/* Member count summary */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
             <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
               {[
-                { label: "Total", count: activeMembers.length, color: accentColor },
-                { label: "Online", count: activeMembers.filter(m => m.isOnline).length, color: "#10b981" },
-                { label: "Admins", count: activeMembers.filter(m => m.role === "admin").length, color: "#7c3aed" },
-                { label: "Mods", count: activeMembers.filter(m => m.role === "moderator").length, color: "#06b6d4" },
+                { label: "Total", count: members.length, color: accentColor },
+                { label: "Online", count: onlineUsers.size, color: "#10b981" },
+                { label: "Admins", count: 1, color: "#7c3aed" }
               ].map(s => (
-                <div key={s.label} style={{
-                  padding: "8px 16px", borderRadius: 12,
-                  background: s.color + "15", border: `1px solid ${s.color}35`,
-                  textAlign: "center",
-                }}>
+                <div key={s.label} style={{ padding: "8px 16px", borderRadius: 12, background: s.color + "15", border: `1px solid ${s.color}35`, textAlign: "center" }}>
                   <div style={{ color: s.color, fontWeight: 800, fontSize: 20 }}>{s.count}</div>
-                  <div style={{ color: "var(--t-text-4)", fontSize: 11 }}>{s.label}</div>
+                  <div style={{ color: "#64748b", fontSize: 11 }}>{s.label}</div>
                 </div>
               ))}
             </div>
 
-            {/* Member list */}
+            <div style={{ position: "relative", marginBottom: 20 }}>
+              <Search size={15} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#64748b" }} />
+              <input value={memberSearch} onChange={e => setMemberSearch(e.target.value)} placeholder="Search members..." style={{ width: "100%", padding: "10px 14px 10px 36px", borderRadius: 14, outline: "none", background: "#13131a", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", fontSize: 14 }} />
+            </div>
+
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {filteredMembers.map(member => (
-                <div
-                  key={member.id}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 12,
-                    padding: "12px 14px", borderRadius: 14,
-                    background: "var(--t-surface)", border: "1px solid var(--t-border)",
-                    transition: "background 0.12s",
-                  }}
-                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = "var(--t-surface-hover)")}
-                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "var(--t-surface)")}
-                >
-                  <div style={{ position: "relative", flexShrink: 0 }}>
-                    <img src={member.avatar} alt={member.name} style={{
-                      width: 44, height: 44, borderRadius: "50%", objectFit: "cover",
-                      border: member.role === "admin"
-                        ? "2px solid rgba(124,58,237,0.7)"
-                        : member.role === "moderator"
-                          ? "2px solid rgba(6,182,212,0.6)"
-                          : "2px solid var(--t-border)",
-                    }} />
-                    {member.isOnline && (
-                      <div style={{ position: "absolute", bottom: 0, right: 0, width: 12, height: 12, borderRadius: "50%", background: "#10b981", border: "2px solid var(--t-bg-card)" }} />
-                    )}
+                <div key={member.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 14, background: "#13131a", border: "1px solid rgba(255,255,255,0.05)" }}>
+                  <div style={{ position: "relative" }}>
+                    <img src={member.profiles?.avatar_url || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop"} alt="Avatar" style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", border: community.owner_id === member.user_id ? "2px solid rgba(124,58,237,0.7)" : "2px solid rgba(255,255,255,0.1)" }} />
+                    {onlineUsers.has(member.user_id) && <div style={{ position: "absolute", bottom: 0, right: 0, width: 12, height: 12, borderRadius: "50%", background: "#10b981", border: "2px solid #13131a" }} />}
                   </div>
-
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                      <span style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 14 }}>{member.name}</span>
-                      {member.role !== "member" && (
-                        <span style={{
-                          padding: "1px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700,
-                          background: member.role === "admin" ? "rgba(124,58,237,0.2)" : "rgba(6,182,212,0.15)",
-                          color: member.role === "admin" ? "#a78bfa" : "#22d3ee",
-                          border: `1px solid ${member.role === "admin" ? "rgba(124,58,237,0.35)" : "rgba(6,182,212,0.3)"}`,
-                        }}>
-                          {member.role === "admin" ? "👑 Admin" : "🛡️ Mod"}
-                        </span>
-                      )}
-                      {member.id === ME_ID && (
-                        <span style={{ padding: "1px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: "rgba(16,185,129,0.15)", color: "#34d399", border: "1px solid rgba(16,185,129,0.3)" }}>
-                          You
-                        </span>
-                      )}
+                      <span style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>{member.profiles?.persona || "User"}</span>
+                      {community.owner_id === member.user_id && <span style={{ padding: "1px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: "rgba(124,58,237,0.2)", color: "#a78bfa", border: "1px solid rgba(124,58,237,0.35)" }}>👑 Admin</span>}
+                      {me?.id === member.user_id && <span style={{ padding: "1px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: "rgba(16,185,129,0.15)", color: "#34d399", border: "1px solid rgba(16,185,129,0.3)" }}>You</span>}
                     </div>
-                    <div style={{ color: "var(--t-text-4)", fontSize: 12 }}>
-                      @{member.handle} · Joined {member.joinedAt} · {member.isOnline ? "🟢 Online" : "⚫ Offline"}
-                    </div>
+                    <div style={{ color: "#64748b", fontSize: 12 }}>Joined {new Date(member.joined_at).toLocaleDateString()} · {onlineUsers.has(member.user_id) ? "🟢 Online" : "⚫ Offline"}</div>
                   </div>
-
-                  {/* Admin controls */}
-                  {isAdmin && member.id !== ME_ID && (
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                      {member.role === "member" && (
-                        <button
-                          onClick={() => handlePromote(member.id)}
-                          title="Promote to Moderator"
-                          style={{
-                            width: 32, height: 32, borderRadius: 8, cursor: "pointer",
-                            background: "rgba(6,182,212,0.12)", border: "1px solid rgba(6,182,212,0.3)",
-                            display: "flex", alignItems: "center", justifyContent: "center", color: "#22d3ee",
-                          }}
-                        >
-                          <Star size={14} />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleBan(member.id)}
-                        title="Ban Member"
-                        style={{
-                          width: 32, height: 32, borderRadius: 8, cursor: "pointer",
-                          background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)",
-                          display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171",
-                        }}
-                      >
-                        <Ban size={14} />
-                      </button>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* ──── ABOUT ──── */}
+        {/* ABOUT TAB */}
         {activeTab === "about" && (
-          <div style={{ flex: 1, overflowY: "auto", padding: "20px", scrollbarWidth: "none" }}>
-            {/* Description */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
             <div style={{ marginBottom: 24 }}>
-              <h3 style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 16, marginBottom: 10 }}>About</h3>
-              <p style={{ color: "var(--t-text-2)", fontSize: 14, lineHeight: 1.7 }}>{community.description}</p>
+              <h3 style={{ color: "#fff", fontWeight: 700, fontSize: 16, marginBottom: 10 }}>About</h3>
+              <p style={{ color: "#cbd5e1", fontSize: 14, lineHeight: 1.7 }}>{community.description}</p>
             </div>
-
-            {/* Info grid */}
+            
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 24 }}>
-              {[
-                { label: "Type",      value: community.type === "private" ? "🔒 Private" : "🌐 Public" },
-                { label: "Category",  value: `📂 ${community.category}` },
-                { label: "Created",   value: `📅 ${community.createdAt}` },
-                { label: "Activity",  value: community.activity === "Very Active" ? "🔥 Very Active" : community.activity === "Active" ? "⚡ Active" : "📈 Growing" },
-              ].map(info => (
-                <div key={info.label} style={{
-                  padding: "12px 14px", borderRadius: 12,
-                  background: "var(--t-surface)", border: "1px solid var(--t-border)",
-                }}>
-                  <div style={{ color: "var(--t-text-4)", fontSize: 11, marginBottom: 4 }}>{info.label}</div>
-                  <div style={{ color: "var(--t-text-1)", fontWeight: 600, fontSize: 13 }}>{info.value}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Tags */}
-            <div style={{ marginBottom: 24 }}>
-              <h3 style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 15, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                <Hash size={14} style={{ color: accentColor }} /> Tags
-              </h3>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {community.tags.map(tag => (
-                  <span key={tag} style={{
-                    padding: "5px 14px", borderRadius: 20,
-                    background: accentColor + "18", border: `1px solid ${accentColor}35`,
-                    color: accentColor, fontSize: 13, fontWeight: 600,
-                  }}>
-                    #{tag}
-                  </span>
-                ))}
+              <div style={{ padding: "12px 14px", borderRadius: 12, background: "#13131a", border: "1px solid rgba(255,255,255,0.05)" }}>
+                <div style={{ color: "#64748b", fontSize: 11, marginBottom: 4 }}>Type</div>
+                <div style={{ color: "#fff", fontWeight: 600, fontSize: 13 }}>{community.privacy_type === 'public' ? '🌐 Public' : '🔒 Private'}</div>
+              </div>
+              <div style={{ padding: "12px 14px", borderRadius: 12, background: "#13131a", border: "1px solid rgba(255,255,255,0.05)" }}>
+                <div style={{ color: "#64748b", fontSize: 11, marginBottom: 4 }}>Category</div>
+                <div style={{ color: "#fff", fontWeight: 600, fontSize: 13 }}>📂 {community.category || 'General'}</div>
               </div>
             </div>
 
-            {/* Rules */}
-            {community.rules.length > 0 && (
+            {community.tags && community.tags.length > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                <h3 style={{ color: "#fff", fontWeight: 700, fontSize: 15, marginBottom: 10, display: "flex", gap: 6 }}><Hash size={14} color={accentColor}/> Tags</h3>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {community.tags.map((tag: string) => (
+                    <span key={tag} style={{ padding: "5px 14px", borderRadius: 20, background: accentColor + "18", border: `1px solid ${accentColor}35`, color: accentColor, fontSize: 13, fontWeight: 600 }}>#{tag}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {community.rules && community.rules.length > 0 && (
               <div>
-                <h3 style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 15, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                  <AlertTriangle size={14} style={{ color: "#f59e0b" }} /> Community Rules
-                </h3>
+                <h3 style={{ color: "#fff", fontWeight: 700, fontSize: 15, marginBottom: 12, display: "flex", gap: 6 }}><AlertTriangle size={14} color="#f59e0b" /> Community Rules</h3>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {community.rules.map((rule, i) => (
-                    <div key={i} style={{
-                      display: "flex", gap: 12, padding: "12px 14px", borderRadius: 12,
-                      background: "var(--t-surface)", border: "1px solid var(--t-border)",
-                    }}>
-                      <div style={{
-                        width: 24, height: 24, borderRadius: "50%", flexShrink: 0,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        background: accentColor + "20", color: accentColor,
-                        fontSize: 12, fontWeight: 800,
-                      }}>
-                        {i + 1}
-                      </div>
-                      <p style={{ color: "var(--t-text-2)", fontSize: 14, lineHeight: 1.5, flex: 1 }}>{rule}</p>
+                  {community.rules.map((rule: string, i: number) => (
+                    <div key={i} style={{ display: "flex", gap: 12, padding: "12px 14px", borderRadius: 12, background: "#13131a", border: "1px solid rgba(255,255,255,0.05)" }}>
+                      <div style={{ width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: accentColor + "20", color: accentColor, fontSize: 12, fontWeight: 800 }}>{i + 1}</div>
+                      <p style={{ color: "#cbd5e1", fontSize: 14, lineHeight: 1.5, flex: 1 }}>{rule}</p>
                     </div>
                   ))}
                 </div>
@@ -923,179 +453,76 @@ export function CommunityPage({ community: initCommunity, onBack, onUpdate }: Co
           </div>
         )}
 
-        {/* ──── ADMIN PANEL ──── */}
-        {activeTab === "admin" && canManage && (
-          <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none" }}>
-            {/* Admin sub-tabs */}
-            <div style={{
-              display: "flex", gap: 0, padding: "0 20px",
-              borderBottom: "1px solid var(--t-border)", background: "var(--t-bg-card)",
-            }}>
+        {/* ADMIN TAB */}
+        {activeTab === "admin" && isAdmin && (
+          <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", gap: 0, padding: "0 20px", borderBottom: "1px solid rgba(255,255,255,0.05)", background: "#0a0a14" }}>
               {[
-                { id: "requests" as const, label: "Join Requests", badge: requests.length },
-                { id: "banned" as const, label: "Banned Users", badge: bannedMembers.length },
-                { id: "settings" as const, label: "Settings" },
+                { id: "requests", label: "Join Requests", badge: requests.length },
+                { id: "banned", label: "Banned Users", badge: 0 },
+                { id: "settings", label: "Settings" }
               ].map(sub => (
-                <button
-                  key={sub.id}
-                  onClick={() => setAdminSubTab(sub.id)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "12px 16px", cursor: "pointer",
-                    color: adminSubTab === sub.id ? "var(--t-text-1)" : "var(--t-text-4)",
-                    fontWeight: adminSubTab === sub.id ? 700 : 400, fontSize: 13,
-                    background: "transparent", border: "none",
-                    borderBottomWidth: 2, borderBottomStyle: "solid",
-                    borderBottomColor: adminSubTab === sub.id ? "#ef4444" : "transparent",
-                    fontFamily: "'Outfit', sans-serif",
-                  }}
-                >
-                  {sub.label}
-                  {sub.badge !== undefined && sub.badge > 0 && (
-                    <span style={{ padding: "1px 7px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: "#ef4444", color: "#fff" }}>
-                      {sub.badge}
-                    </span>
-                  )}
+                <button key={sub.id} onClick={() => setAdminSubTab(sub.id as any)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "12px 16px", cursor: "pointer", color: adminSubTab === sub.id ? "#fff" : "#64748b", fontWeight: adminSubTab === sub.id ? 700 : 400, fontSize: 13, background: "transparent", border: "none", borderBottom: adminSubTab === sub.id ? "2px solid #ef4444" : "2px solid transparent" }}>
+                  {sub.label} {(sub.badge || 0) > 0 && <span style={{ padding: "1px 7px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: "#ef4444", color: "#fff" }}>{sub.badge}</span>}
                 </button>
               ))}
             </div>
 
             <div style={{ padding: "20px" }}>
-
-              {/* Join Requests */}
               {adminSubTab === "requests" && (
                 <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-                    <h3 style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 16 }}>Pending Join Requests</h3>
-                    {requests.length > 0 && (
-                      <span style={{ padding: "2px 10px", borderRadius: 20, background: "#ef4444", color: "#fff", fontSize: 12, fontWeight: 700 }}>
-                        {requests.length}
-                      </span>
-                    )}
-                  </div>
-
+                  <h3 style={{ color: "#fff", fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Pending Join Requests</h3>
                   {requests.length === 0 ? (
                     <div style={{ textAlign: "center", padding: "40px 0" }}>
                       <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
-                      <p style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 16, marginBottom: 6 }}>All caught up!</p>
-                      <p style={{ color: "var(--t-text-4)", fontSize: 14 }}>No pending join requests.</p>
+                      <p style={{ color: "#fff", fontWeight: 700, fontSize: 16, marginBottom: 6 }}>All caught up!</p>
+                      <p style={{ color: "#64748b", fontSize: 14 }}>No pending join requests.</p>
                     </div>
                   ) : (
                     requests.map(req => (
-                      <RequestCard
-                        key={req.id} req={req}
-                        onAccept={handleAcceptRequest}
-                        onDeny={handleDenyRequest}
-                      />
+                      <div key={req.id} style={{ padding: 16, borderRadius: 16, background: "#13131a", border: "1px solid rgba(255,255,255,0.1)", marginBottom: 10 }}>
+                        <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+                          <img src={req.profiles?.avatar_url || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop"} alt="Avatar" style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover" }} />
+                          <div>
+                            <div style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>{req.profiles?.persona || "User"}</div>
+                            <div style={{ color: "#64748b", fontSize: 12 }}>Requested to join</div>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button onClick={() => handleAcceptRequest(req.id, req.user_id)} style={{ flex: 1, padding: "8px 0", borderRadius: 10, background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.4)", color: "#34d399", fontWeight: 700, cursor: "pointer" }}>Accept</button>
+                          <button onClick={() => handleDenyRequest(req.id)} style={{ flex: 1, padding: "8px 0", borderRadius: 10, background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#f87171", fontWeight: 700, cursor: "pointer" }}>Deny</button>
+                        </div>
+                      </div>
                     ))
                   )}
                 </div>
               )}
 
-              {/* Banned Users */}
-              {adminSubTab === "banned" && (
-                <div>
-                  <h3 style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 16, marginBottom: 16 }}>
-                    Banned Members ({bannedMembers.length})
-                  </h3>
-
-                  {bannedMembers.length === 0 ? (
-                    <div style={{ textAlign: "center", padding: "40px 0" }}>
-                      <div style={{ fontSize: 48, marginBottom: 12 }}>🕊️</div>
-                      <p style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 16, marginBottom: 6 }}>No bans</p>
-                      <p style={{ color: "var(--t-text-4)", fontSize: 14 }}>Your community is clean!</p>
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {bannedMembers.map(member => (
-                        <div key={member.id} style={{
-                          display: "flex", alignItems: "center", gap: 12,
-                          padding: "12px 14px", borderRadius: 14,
-                          background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)",
-                        }}>
-                          <img src={member.avatar} alt={member.name} style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover", opacity: 0.5 }} />
-                          <div style={{ flex: 1 }}>
-                            <div style={{ color: "var(--t-text-2)", fontWeight: 600, fontSize: 14, textDecoration: "line-through" }}>{member.name}</div>
-                            <div style={{ color: "#f87171", fontSize: 11 }}>@{member.handle} · BANNED</div>
-                          </div>
-                          <button
-                            onClick={() => handleUnban(member.id)}
-                            style={{
-                              padding: "6px 14px", borderRadius: 10, cursor: "pointer",
-                              background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)",
-                              color: "#34d399", fontWeight: 700, fontSize: 12,
-                              fontFamily: "'Outfit', sans-serif",
-                            }}
-                          >
-                            Unban
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Settings */}
               {adminSubTab === "settings" && (
                 <div>
-                  <h3 style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Community Settings</h3>
-
-                  {/* Type toggle */}
-                  <div style={{
-                    padding: "16px", borderRadius: 14, marginBottom: 12,
-                    background: "var(--t-surface)", border: "1px solid var(--t-border)",
-                  }}>
-                    <div style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 14, marginBottom: 8 }}>Community Type</div>
+                  <h3 style={{ color: "#fff", fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Community Settings</h3>
+                  <div style={{ padding: "16px", borderRadius: 14, marginBottom: 12, background: "#13131a", border: "1px solid rgba(255,255,255,0.05)" }}>
+                    <div style={{ color: "#fff", fontWeight: 700, fontSize: 14, marginBottom: 8 }}>Community Type</div>
                     <div style={{ display: "flex", gap: 8 }}>
                       {["public", "private"].map(type => (
-                        <button
-                          key={type}
-                          onClick={() => syncUp({ type: type as "public" | "private" })}
-                          style={{
-                            flex: 1, padding: "10px 0", borderRadius: 10, cursor: "pointer",
-                            background: community.type === type
-                              ? (type === "public" ? "rgba(16,185,129,0.15)" : "rgba(251,191,36,0.15)")
-                              : "var(--t-surface-hover)",
-                            border: community.type === type
-                              ? (type === "public" ? "1.5px solid rgba(16,185,129,0.5)" : "1.5px solid rgba(251,191,36,0.5)")
-                              : "1px solid var(--t-border)",
-                            color: community.type === type
-                              ? (type === "public" ? "#34d399" : "#fbbf24")
-                              : "var(--t-text-3)",
-                            fontWeight: community.type === type ? 700 : 400,
-                            fontSize: 14, fontFamily: "'Outfit', sans-serif",
-                            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                          }}
-                        >
-                          {type === "public" ? <Globe size={14} /> : <Lock size={14} />}
-                          {type === "public" ? "Public" : "Private"}
+                        <button key={type} onClick={() => togglePrivacy(type as any)} style={{ flex: 1, padding: "10px 0", borderRadius: 10, cursor: "pointer", background: community.privacy_type === type ? (type === "public" ? "rgba(16,185,129,0.15)" : "rgba(251,191,36,0.15)") : "rgba(255,255,255,0.05)", border: community.privacy_type === type ? (type === "public" ? "1.5px solid rgba(16,185,129,0.5)" : "1.5px solid rgba(251,191,36,0.5)") : "1px solid rgba(255,255,255,0.1)", color: community.privacy_type === type ? (type === "public" ? "#34d399" : "#fbbf24") : "#94a3b8", fontWeight: community.privacy_type === type ? 700 : 400, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                          {type === "public" ? <Globe size={14} /> : <Lock size={14} />} {type === "public" ? "Public" : "Private"}
                         </button>
                       ))}
                     </div>
-                    <p style={{ color: "var(--t-text-4)", fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
-                      {community.type === "public"
-                        ? "Anyone can discover and join this community without approval."
-                        : "New members must be approved by an admin before joining."}
-                    </p>
+                    <p style={{ color: "#64748b", fontSize: 12, marginTop: 8 }}>{community.privacy_type === "public" ? "Anyone can discover and join this community." : "New members must be approved by an admin."}</p>
                   </div>
-
-                  {/* Stats */}
-                  <div style={{
-                    padding: "16px", borderRadius: 14,
-                    background: "var(--t-surface)", border: "1px solid var(--t-border)",
-                  }}>
-                    <div style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Community Stats</div>
+                  
+                  <div style={{ padding: "16px", borderRadius: 14, background: "#13131a", border: "1px solid rgba(255,255,255,0.05)" }}>
+                    <div style={{ color: "#fff", fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Community Stats</div>
                     {[
-                      { label: "Total Members", value: formatMemberCount(community.totalMembers) },
-                      { label: "Posts Today", value: community.postsToday || 0 },
-                      { label: "Active Members", value: activeMembers.filter(m => m.isOnline).length },
+                      { label: "Total Members", value: formatMemberCount(members.length) },
                       { label: "Pending Requests", value: requests.length },
-                      { label: "Banned Users", value: bannedMembers.length },
+                      { label: "Total Messages", value: messages.length }
                     ].map(s => (
-                      <div key={s.label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--t-border)" }}>
-                        <span style={{ color: "var(--t-text-3)", fontSize: 13 }}>{s.label}</span>
-                        <span style={{ color: "var(--t-text-1)", fontWeight: 700, fontSize: 13 }}>{s.value}</span>
+                      <div key={s.label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                        <span style={{ color: "#94a3b8", fontSize: 13 }}>{s.label}</span>
+                        <span style={{ color: "#fff", fontWeight: 700, fontSize: 13 }}>{s.value}</span>
                       </div>
                     ))}
                   </div>
